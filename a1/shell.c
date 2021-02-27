@@ -52,7 +52,11 @@ void init() {
   curr_dir = getcwd(NULL, 0);
   curr_print_dir = get_print_dir(curr_dir);
 }
-void cleanup() { free(curr_dir); }
+
+void cleanup() {
+  free(curr_dir);
+  free(curr_print_dir);
+}
 
 char *get_cmd() {
   printf("MTL458:%s$ ", curr_print_dir);
