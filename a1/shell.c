@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 const int init_str_size = 20; // For use in input_str
@@ -17,6 +18,7 @@ char *const cd_cmd = "cd";
 char *const history_cmd = "history";
 
 void change_dir(char *const remaining_cmd);
+void run_cmd(char *const cmd);
 
 int main(void) {
   init();
@@ -41,7 +43,7 @@ int main(void) {
     } else if (strcmp(first_cmd, history_cmd) == 0) {
       printf("You wanted history!\n");
     } else {
-      printf("I'll execute this command directly\n");
+      run_cmd(cmd);
     }
 
     free(tmp_cmd);
@@ -98,6 +100,46 @@ void change_dir(char *const remaining_cmd) {
 
   curr_dir = getcwd(NULL, 0);
   curr_print_dir = get_print_dir(curr_dir);
+}
+
+void run_cmd(char *const cmd) {
+  int pid = fork();
+  if (pid == -1) {
+    perror("fork");
+  } else if (pid == 0) {
+    char *temp_cmd = strdup(cmd);
+
+    // Possibly inefficient, going through the string twice
+    char *tok = strtok(temp_cmd, " ");
+    int num_args = 0;
+    while (tok) {
+      num_args++;
+      tok = strtok(NULL, " ");
+    }
+
+    free(temp_cmd);
+
+    // + 1 since last element in the array must be NULL
+    char **args = malloc(sizeof(char *) * (num_args + 1));
+    temp_cmd = strdup(cmd);
+    tok = strtok(temp_cmd, " ");
+    int i = 0;
+    while (tok) {
+      args[i++] = strdup(tok);
+      tok = strtok(NULL, " ");
+    }
+    args[i] = NULL;
+    free(temp_cmd);
+
+    execvp(args[0], args);
+
+    // If execvp returned, it means an error must have occurred
+    perror("exec");
+  } else {
+    if (wait(NULL) == -1) {
+      perror("wait");
+    }
+  }
 }
 
 void init() {
