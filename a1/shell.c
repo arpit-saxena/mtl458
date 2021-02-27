@@ -29,6 +29,7 @@ int main(void) {
 
     if (strlen(cmd) == 0) {
       if (got_eof) {
+        free(cmd);
         printf("\n");
         break;
       }
