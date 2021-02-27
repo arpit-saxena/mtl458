@@ -19,6 +19,13 @@ char *const history_cmd = "history";
 
 void change_dir(char *const remaining_cmd);
 void run_cmd(char *const cmd);
+void print_history();
+
+struct {
+  char *arr[5];
+  int oldest_pos;
+  int size;
+} history;
 
 int main(void) {
   init();
@@ -42,7 +49,7 @@ int main(void) {
     if (strcmp(first_cmd, cd_cmd) == 0) {
       change_dir(strtok(NULL, ""));
     } else if (strcmp(first_cmd, history_cmd) == 0) {
-      printf("You wanted history!\n");
+      print_history();
     } else {
       run_cmd(cmd);
     }
@@ -143,16 +150,35 @@ void run_cmd(char *const cmd) {
   }
 }
 
+void print_history() {
+  int init_pos = 0;
+  if (history.size >= 5) {
+    init_pos = history.oldest_pos;
+  }
+  for (int i = 0; i < history.size; i++) {
+    printf("%d %s\n", i, history.arr[(init_pos + i) % 5]);
+  }
+}
+
 void init() {
   curr_dir = getcwd(NULL, 0);
   start_dir = strdup(curr_dir);
   curr_print_dir = get_print_dir(curr_dir);
+
+  history.oldest_pos = 0;
+  history.size = 0;
+  for (int i = 0; i < 5; i++) {
+    history.arr[i] = NULL;
+  }
 }
 
 void cleanup() {
   free(curr_dir);
   free(curr_print_dir);
   free(start_dir);
+  for (int i = 0; i < history.size; i++) {
+    free(history.arr[i]);
+  }
 }
 
 void sigint_handler(int sig_no) {
@@ -163,5 +189,14 @@ void sigint_handler(int sig_no) {
 
 char *get_cmd() {
   printf("MTL458:%s$ ", curr_print_dir);
-  return input_str();
+  char *cmd = input_str();
+
+  free(history.arr[history.oldest_pos]);
+  history.arr[history.oldest_pos++] = strdup(cmd);
+  history.oldest_pos %= 5;
+  if (history.size != 5) {
+    history.size++;
+  }
+
+  return cmd;
 }
