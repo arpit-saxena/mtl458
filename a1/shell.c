@@ -87,27 +87,78 @@ char *get_print_dir(char *dir) {
   return print_dir;
 }
 
-// remaining_cmd should contain the rest of the command after "cd"
-void change_dir(char *const remaining_cmd) {
-  char *dir = strtok(remaining_cmd, " ");
-
-  if (!dir) { // remaining_cmd is empty
-    dir = start_dir;
-  } else if (strtok(NULL, " ")) {
-    fprintf(stderr, "cd: Too many arguments\n");
-    return;
-  }
-
-  if (chdir(dir)) {
-    perror("cd");
-    return;
-  }
-
+void update_curr_dir() {
   free(curr_dir);
   free(curr_print_dir);
 
   curr_dir = getcwd(NULL, 0);
   curr_print_dir = get_print_dir(curr_dir);
+}
+
+// remaining_cmd should contain the rest of the command after "cd"
+void change_dir(char *const remaining_cmd) {
+  if (!remaining_cmd) {
+    if (chdir(start_dir)) {
+      perror("cd");
+      return;
+    }
+    update_curr_dir();
+    return;
+  }
+
+  int rem_len = strlen(remaining_cmd);
+  char *dir = malloc((rem_len + 1) * sizeof(char));
+  int dir_pos = 0;
+  int escape_space = 0;
+  int last_non_blank_pos = 0;
+
+  int start_pos = 0;
+  char *prefix = malloc(1 * sizeof(char));
+  prefix[0] = '\0';
+  if (remaining_cmd[0] == '~') {
+    free(prefix);
+    prefix = strdup(start_dir);
+    start_pos = 1;
+  }
+
+  for (int i = start_pos; i < rem_len; i++) {
+    if (remaining_cmd[i] == ' ' && !escape_space) {
+      char *rem = strtok(remaining_cmd + i, " ");
+      if (rem && rem[0] != '\0') {
+        fprintf(stderr, "cd: Too many arguments\n");
+        free(dir);
+        free(prefix);
+        return;
+      }
+    } else {
+      last_non_blank_pos = i;
+      if (remaining_cmd[i] == '\"') {
+        escape_space = !escape_space;
+      } else {
+        dir[dir_pos++] = remaining_cmd[i];
+      }
+    }
+  }
+  dir[dir_pos++] = '\0';
+
+  prefix = realloc(prefix, strlen(prefix) + dir_pos);
+  if (!prefix) {
+    perror("cd");
+    return;
+  }
+
+  strcat(prefix, dir);
+  free(dir);
+  dir = prefix;
+
+  if (chdir(dir)) {
+    printf("%s\n", dir);
+    perror("cd");
+    return;
+  }
+
+  free(dir);
+  update_curr_dir();
 }
 
 void run_cmd(char *const cmd) {
