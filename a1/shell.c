@@ -194,6 +194,7 @@ void run_cmd(char *const cmd) {
 
     // If execvp returned, it means an error must have occurred
     perror("exec");
+    exit(1); // Exit out of child process
   } else {
     if (wait(NULL) == -1) {
       perror("wait");
