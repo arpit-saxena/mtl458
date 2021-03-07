@@ -14,12 +14,13 @@ void cleanup();
 void sigint_handler(int sig_no);
 char *get_cmd();
 char *input_str();
+char **get_args(char *cmd);
 
 char *const cd_cmd = "cd";
 char *const history_cmd = "history";
 
-void change_dir(char *const remaining_cmd);
-void run_cmd(char *const cmd);
+void change_dir(char **args);
+void run_cmd(char **args);
 void print_history();
 
 struct {
@@ -36,27 +37,35 @@ int main(void) {
     char *cmd = get_cmd();
 
     if (strlen(cmd) == 0) {
+      free(cmd);
       if (got_eof) {
-        free(cmd);
         printf("\n");
         break;
       }
       continue;
     }
 
-    char *tmp_cmd = strdup(cmd);
-    char *first_cmd = strtok(tmp_cmd, " ");
+    char **args = get_args(cmd);
+    free(cmd);
 
-    if (strcmp(first_cmd, cd_cmd) == 0) {
-      change_dir(strtok(NULL, ""));
-    } else if (strcmp(first_cmd, history_cmd) == 0) {
-      print_history();
+    if (strcmp(args[0], cd_cmd) == 0) {
+      change_dir(args);
+    } else if (strcmp(args[0], history_cmd) == 0) {
+      if (args[1]) {
+        fprintf(stderr, "history: Too many arguments\n");
+      } else {
+        print_history();
+      }
     } else {
-      run_cmd(cmd);
+      run_cmd(args);
     }
 
-    free(tmp_cmd);
-    free(cmd);
+    int i = 0;
+    while (args[i]) {
+      free(args[i]);
+      i++;
+    }
+    free(args);
   }
 
   cleanup();
@@ -97,8 +106,8 @@ void update_curr_dir() {
 }
 
 // remaining_cmd should contain the rest of the command after "cd"
-void change_dir(char *const remaining_cmd) {
-  if (!remaining_cmd) {
+void change_dir(char **args) {
+  if (!args[1]) { // No argument to cd goes to starting directory
     if (chdir(start_dir)) {
       perror("cd");
       return;
@@ -107,54 +116,26 @@ void change_dir(char *const remaining_cmd) {
     return;
   }
 
-  int rem_len = strlen(remaining_cmd);
-  char *dir = malloc((rem_len + 1) * sizeof(char));
-  int dir_pos = 0;
-  int escape_space = 0;
-  int last_non_blank_pos = 0;
-
-  int start_pos = 0;
-  char *prefix = malloc(1 * sizeof(char));
-  prefix[0] = '\0';
-  if (remaining_cmd[0] == '~') {
-    free(prefix);
-    prefix = strdup(start_dir);
-    start_pos = 1;
-  }
-
-  for (int i = start_pos; i < rem_len; i++) {
-    if (remaining_cmd[i] == ' ' && !escape_space) {
-      char *rem = strtok(remaining_cmd + i, " ");
-      if (rem && rem[0] != '\0') {
-        fprintf(stderr, "cd: Too many arguments\n");
-        free(dir);
-        free(prefix);
-        return;
-      }
-    } else {
-      last_non_blank_pos = i;
-      if (remaining_cmd[i] == '\"') {
-        escape_space = !escape_space;
-      } else {
-        dir[dir_pos++] = remaining_cmd[i];
-      }
-    }
-  }
-  dir[dir_pos++] = '\0';
-
-  prefix = realloc(prefix, strlen(prefix) + dir_pos);
-  if (!prefix) {
-    perror("cd");
+  if (args[2]) {
+    fprintf(stderr, "cd: Too many arguments\n");
     return;
   }
 
-  strcat(prefix, dir);
-  free(dir);
-  dir = prefix;
+  char *dir;
+  if (args[1][0] == '~') {
+    // To allocate: Remove 1 for ~ and add 1 for \0
+    dir = malloc((strlen(args[1]) + strlen(start_dir)) * sizeof(char));
+    dir[0] = '\0';
+    strcat(dir, start_dir);
+    strcat(dir, args[1] + 1);
+  } else {
+    dir = strdup(args[1]);
+  }
 
   if (chdir(dir)) {
     printf("%s\n", dir);
     perror("cd");
+    free(dir);
     return;
   }
 
@@ -162,35 +143,11 @@ void change_dir(char *const remaining_cmd) {
   update_curr_dir();
 }
 
-void run_cmd(char *const cmd) {
+void run_cmd(char **args) {
   int pid = fork();
   if (pid == -1) {
     perror("fork");
   } else if (pid == 0) {
-    char *temp_cmd = strdup(cmd);
-
-    // Possibly inefficient, going through the string twice
-    char *tok = strtok(temp_cmd, " ");
-    int num_args = 0;
-    while (tok) {
-      num_args++;
-      tok = strtok(NULL, " ");
-    }
-
-    free(temp_cmd);
-
-    // + 1 since last element in the array must be NULL
-    char **args = malloc(sizeof(char *) * (num_args + 1));
-    temp_cmd = strdup(cmd);
-    tok = strtok(temp_cmd, " ");
-    int i = 0;
-    while (tok) {
-      args[i++] = strdup(tok);
-      tok = strtok(NULL, " ");
-    }
-    args[i] = NULL;
-    free(temp_cmd);
-
     execvp(args[0], args);
 
     // If execvp returned, it means an error must have occurred
@@ -252,6 +209,66 @@ char *get_cmd() {
   }
 
   return cmd;
+}
+
+// Returns an array of args, last of which is NULL.
+// Arguments are taken from the string cmd, separated by spaces and enclosed by
+// double quotes when argument has a space
+char **get_args(char *cmd) {
+  char **args = malloc(10 * sizeof(char *));
+  int args_capacity = 10;
+  int args_size = 0;
+
+  int cmd_len = strlen(cmd);
+
+  int i = 0;
+
+  // INV: cmd[i] != ' ' || i == cmd_len
+  while (1) { // Iterate over arguments
+    if (args_size == args_capacity) {
+      args = realloc(args, sizeof(*args) * (args_capacity += 10));
+      if (!args) { // realloc failed
+        perror("get_args: realloc");
+        exit(1);
+      }
+    }
+
+    while (i < cmd_len && cmd[i] == ' ') {
+      i++;
+    }
+    if (i == cmd_len) {
+      args[args_size++] = NULL;
+      return args;
+    }
+
+    // Wasting memory somewhat, but I don't want to deal with reallocating again
+    args[args_size++] = malloc((cmd_len + 1) * sizeof(char));
+    args[args_size - 1][0] = '\0';
+
+    int begin = i;
+    int escape_space = 0;
+    while (i <= cmd_len) {
+      if (i == cmd_len) {
+        strcat(args[args_size - 1], cmd + begin);
+        break;
+      } else if (cmd[i] == ' ' && !escape_space) {
+        // Argument is cmd[begin..i-1]
+        cmd[i] = '\0';
+        strcat(args[args_size - 1], cmd + begin);
+        cmd[i] = ' ';
+        break;
+      } else if (cmd[i] == '"') {
+        escape_space = !escape_space;
+        cmd[i] = '\0';
+        strcat(args[args_size - 1], cmd + begin);
+        cmd[i] = '"';
+        begin = i + 1;
+        i++;
+      } else {
+        i++;
+      }
+    }
+  }
 }
 
 // Safe arbitrary length string input function taken from
