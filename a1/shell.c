@@ -37,15 +37,21 @@ int main(void) {
 
     if (strlen(cmd) == 0) {
       free(cmd);
-      if (got_eof) {
+      if (got_eof) { // Exit on stream EOF, else new prompt
         printf("\n");
         break;
       }
       continue;
     }
 
+    // Split command into arguments
     char **args = get_args(cmd);
     free(cmd);
+    if (!args) {
+      // Some error occurred in processing of args. Error has been printed, so
+      // just put up a new prompt
+      continue;
+    }
 
     if (strcmp(args[0], cd_cmd) == 0) {
       change_dir(args);
@@ -104,7 +110,9 @@ void update_curr_dir() {
   curr_print_dir = get_print_dir(curr_dir);
 }
 
-// remaining_cmd should contain the rest of the command after "cd"
+// args contains the command split into args.
+// This assumes atleast one element in this array, ignores the first argument
+// and considers the rest as argument given to cd
 void change_dir(char **args) {
   if (!args[1]) { // No argument to cd goes to starting directory
     if (chdir(start_dir)) {
@@ -122,7 +130,7 @@ void change_dir(char **args) {
 
   char *dir;
   if (args[1][0] == '~') {
-    // To allocate: Remove 1 for ~ and add 1 for \0
+    // To allocate: Remove 1 from size for ~ and add 1 for \0
     dir = malloc((strlen(args[1]) + strlen(start_dir)) * sizeof(char));
     dir[0] = '\0';
     strcat(dir, start_dir);
@@ -199,6 +207,10 @@ void sigint_handler(int sig_no) {
 char *get_cmd() {
   printf("MTL458:%s$ ", curr_print_dir);
   char *cmd = input_str();
+  if (!cmd) {
+    perror("input_str");
+    exit(1); // Assuming irrecoverable error
+  }
 
   free(history.arr[history.oldest_pos]);
   history.arr[history.oldest_pos++] = strdup(cmd);
@@ -212,7 +224,9 @@ char *get_cmd() {
 
 // Returns an array of args, last of which is NULL.
 // Arguments are taken from the string cmd, separated by spaces and enclosed by
-// double quotes when argument has a space
+// double quotes when argument has a space.
+// This removes all double quotes and uses them to indicate when a space
+// separates arguments and when it is a part of the argument
 char **get_args(char *cmd) {
   char **args = malloc(10 * sizeof(char *));
   int args_capacity = 10;
@@ -222,7 +236,6 @@ char **get_args(char *cmd) {
 
   int i = 0;
 
-  // INV: cmd[i] != ' ' || i == cmd_len
   while (1) { // Iterate over arguments
     if (args_size == args_capacity) {
       args = realloc(args, sizeof(*args) * (args_capacity += 10));
@@ -231,6 +244,7 @@ char **get_args(char *cmd) {
         exit(1);
       }
     }
+    // Now args has space for a new argument
 
     while (i < cmd_len && cmd[i] == ' ') {
       i++;
@@ -245,11 +259,11 @@ char **get_args(char *cmd) {
     args[args_size - 1][0] = '\0';
 
     int begin = i;
-    int escape_space = 0;
+    int escape_space = 0; // escape_space <=> ' ' is part of argument
     while (i <= cmd_len) {
       if (i == cmd_len) {
         strcat(args[args_size - 1], cmd + begin);
-        break;
+        break; // Next argument iteration will add NULL arg and return
       } else if (cmd[i] == ' ' && !escape_space) {
         // Argument is cmd[begin..i-1]
         cmd[i] = '\0';
@@ -267,13 +281,16 @@ char **get_args(char *cmd) {
         i++;
       }
     }
+
+    if (i == cmd_len && escape_space) { // => Unclosed double quotes
+      fprintf(stderr, "Unclosed double quotes\n");
+      return NULL;
+    }
   }
 }
 
 // Safe arbitrary length string input function taken from
 // https://stackoverflow.com/a/16871702/5585431
-extern const int init_str_size;
-extern int got_eof;
 char *input_str() {
   char ch;
   size_t len = 0;
