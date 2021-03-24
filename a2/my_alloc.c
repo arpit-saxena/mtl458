@@ -58,15 +58,15 @@ free_header_t head_free_list = {
     .size = 0, .next = NULL}; // Head of the free list. Dummy node which points
                               // to the rest of the free list
 
-// type, size and prev_size are bit-fields to pack them together and reduce the
-// total size of the struct.
-// prev_size denotes size of the previous chunk in memory (can be either free or
-// allocated chunk). It is used for coalescing when freeing this block.
+// type, size and prev_free_size are bit-fields to pack them together and reduce
+// the total size of the struct.
+// prev_free_size denotes size of memory that is immediately free before this
+// chunk It is used for coalescing when freeing this block.
 typedef struct {
   unsigned int type : 1;
   unsigned int size : 15; // Size of the allocated memory. Excludes header.
   unsigned int
-      prev_size : 15; // Size of the previous chunk in memory (w/ header)
+      prev_free_size : 15; // Size of the previous chunk in memory (w/ header)
 } alloc_header_t;
 
 int my_init(void) {
@@ -96,14 +96,19 @@ void *my_alloc(int size) {
   int search_size = size + sizeof(alloc_header_t);
   free_header_t *init_fh = next_fh;
   alloc_header_t *alloc_header = NULL;
+  dprint("Starting alloc of size %d\n", size);
   while (true) {
     int total_free_space = next_fh->size + sizeof(*next_fh);
+    dprint("Total free space: %d\n", total_free_space);
+    dprint("Search size: %d\n", search_size);
     if (total_free_space >= search_size) {
       int remaining_space = total_free_space - search_size;
       free_header_t free_header = *next_fh; // Make a copy of this header
       alloc_header = (alloc_header_t *)next_fh;
       alloc_header->size = size;
-      alloc_header->prev_size = prev_fh->size + sizeof(*prev_fh);
+      alloc_header->prev_free_size = 0; // Allocating at beginning of free
+                                        // block, nothing is free just before
+      alloc_header->type = ALLOC_BLOCK;
 
       if (remaining_space < sizeof(free_header)) {
         // No space for free_header, so allocate this too
@@ -111,32 +116,33 @@ void *my_alloc(int size) {
         remaining_space = 0;
       }
 
-      int updated_prev_size;
+      int updated_prev_free_size;
       if (remaining_space == 0) {
         prev_fh->next = free_header.next;
         // This is set so that we move correctly to the next free header.
         // Otherwise we would skip the block that was after the current free
         // block.
         next_fh = prev_fh;
-        updated_prev_size = alloc_header->size + sizeof(*alloc_header);
+        updated_prev_free_size = 0; // No free memory here now
       } else {
         next_fh = (free_header_t *)((char *)alloc_header +
                                     sizeof(*alloc_header) + alloc_header->size);
         next_fh->next = free_header.next;
         next_fh->size = remaining_space - sizeof(free_header);
+        next_fh->type = FREE_BLOCK;
         prev_fh->next = next_fh;
-        updated_prev_size = next_fh->size;
+        updated_prev_free_size = next_fh->size;
       }
 
-      // Now update the prev_size of block after the free block we initially
-      // chose, if the next one exists and is an allocated block
+      // Now update the prev_free_size of block after the free block we
+      // initially chose, if the next one exists and is an allocated block
       alloc_header_t *next_ah =
           (alloc_header_t *)((char *)alloc_header + free_header.size +
                              sizeof(free_header));
       if ((char *)next_ah - (char *)page < PAGE_SIZE) {
         // ^Check if there is actually a block after this free block
         if (next_ah->type == ALLOC_BLOCK) {
-          next_ah->prev_size = updated_prev_size;
+          next_ah->prev_free_size = updated_prev_free_size;
         }
       }
     }
