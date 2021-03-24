@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -51,6 +52,10 @@ typedef struct free_header_t {
   struct free_header_t *next; // Next node in the free list
 } free_header_t;
 
+bool is_valid_addr(void *addr) {
+  return ((char *)addr - (char *)page) < PAGE_SIZE;
+}
+
 free_header_t *next_fh; // next_free_header; Used to implement next fit algo.
 free_header_t *prev_fh; // prev node of next_fh.
 // ^These 2 never become null after initialization
@@ -60,8 +65,6 @@ free_header_t head_free_list = {
 
 // type, size and prev_free_size are bit-fields to pack them together and reduce
 // the total size of the struct.
-// prev_free_size denotes size of memory that is immediately free before this
-// chunk It is used for coalescing when freeing this block.
 typedef struct {
   unsigned int type : 1;
   unsigned int size : 15; // Size of the allocated memory. Excludes header.
@@ -149,7 +152,7 @@ void *my_alloc(int size) {
 
   if (alloc_header) {
     // => Successful allocation
-    return (void *)(alloc_header + sizeof(*alloc_header));
+    return (void *)((char *)alloc_header + sizeof(*alloc_header));
   }
 
   // Unable to allocate
@@ -159,7 +162,54 @@ void *my_alloc(int size) {
 
 // Frees the region of memory given by ptr. It must be the pointer that my_alloc
 // defined, there's no check for it otherwise.
-void my_free(void *ptr) {}
+void my_free(void *ptr) {
+  dprint("Starting free\n");
+  alloc_header_t *alloc_header =
+      (alloc_header_t *)((char *)ptr - sizeof(alloc_header_t));
+  free_header_t *prev = &head_free_list;
+  free_header_t *curr = head_free_list.next;
+
+  free_header_t free_header = {.size = alloc_header->size +
+                                       sizeof(*alloc_header) -
+                                       sizeof(free_header_t),
+                               .type = FREE_BLOCK};
+  free_header_t *coalesced_fh_begin = NULL;
+
+  free_header_t *insert_after_fh = prev;
+  free_header_t *insert_before_fh = curr;
+  while (curr) {
+    char *next_addr = (char *)curr + curr->size + sizeof(*curr);
+    if (next_addr == (char *)alloc_header) {
+      coalesced_fh_begin = curr;
+      free_header.size += curr->size + sizeof(*curr);
+      insert_after_fh = prev;
+      insert_before_fh = curr->next;
+      break;
+    } else if ((char *)curr->next > (char *)alloc_header) {
+      insert_after_fh = curr;
+      insert_before_fh = curr->next;
+      break;
+    }
+
+    prev = curr;
+    curr = curr->next;
+  }
+
+  if (!coalesced_fh_begin) { // No free block just before
+    coalesced_fh_begin = (free_header_t *)alloc_header;
+  }
+
+  free_header_t *next_block =
+      (free_header_t *)((char *)ptr + alloc_header->size);
+  if (is_valid_addr(next_block) && next_block->type == FREE_BLOCK) {
+    free_header.size += next_block->size + sizeof(*next_block);
+    insert_before_fh = next_block->next;
+  }
+
+  free_header.next = insert_before_fh;
+  memcpy(coalesced_fh_begin, &free_header, sizeof(free_header));
+  insert_after_fh->next = coalesced_fh_begin;
+}
 
 void my_clean(void) {
   if (munmap(page, PAGE_SIZE) == -1) {
@@ -184,6 +234,7 @@ void my_heapinfo() {
 }
 
 void print_free_list() {
+  dprint("Free list: ");
   dprint("HEAD -> ");
   free_header_t *curr = head_free_list.next;
   while (curr) {
@@ -191,7 +242,7 @@ void print_free_list() {
     dprint("%d -> ", curr->size);
     curr = curr->next;
   }
-  dprint("NULL\n");
+  dprint("NULL\n\n");
 }
 
 void print_info() {
