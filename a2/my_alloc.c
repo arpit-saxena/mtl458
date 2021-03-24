@@ -89,6 +89,8 @@ int my_init(void) {
 }
 
 void *my_alloc(int size) {
+  assert(prev_fh->next == next_fh);
+
   if (size % 8 != 0) {
     dfprint(stderr, "size given to my_alloc not a multiple of 8\n");
     return NULL;
@@ -115,14 +117,12 @@ void *my_alloc(int size) {
         remaining_space = 0;
       }
 
-      int updated_prev_free_size;
       if (remaining_space == 0) {
         prev_fh->next = free_header.next;
         // This is set so that we move correctly to the next free header.
         // Otherwise we would skip the block that was after the current free
         // block.
         next_fh = prev_fh;
-        updated_prev_free_size = 0; // No free memory here now
       } else {
         next_fh = (free_header_t *)((char *)alloc_header +
                                     sizeof(*alloc_header) + alloc_header->size);
@@ -130,7 +130,6 @@ void *my_alloc(int size) {
         next_fh->size = remaining_space - sizeof(free_header);
         next_fh->type = FREE_BLOCK;
         prev_fh->next = next_fh;
-        updated_prev_free_size = next_fh->size;
       }
     }
 
@@ -177,9 +176,13 @@ void my_free(void *ptr) {
 
   free_header_t *insert_after_fh = prev;
   free_header_t *insert_before_fh = curr;
+
+  free_header_t *coalesced_block_before = NULL;
+  free_header_t *coalesced_block_after = NULL;
   while (curr) {
     char *next_addr = (char *)curr + curr->size + sizeof(*curr);
     if (next_addr == (char *)alloc_header) {
+      coalesced_block_before = curr;
       coalesced_fh_begin = curr;
       free_header.size += curr->size + sizeof(*curr);
       insert_after_fh = prev;
@@ -202,6 +205,7 @@ void my_free(void *ptr) {
   free_header_t *next_block =
       (free_header_t *)((char *)ptr + alloc_header->size);
   if (is_valid_addr(next_block) && next_block->type == FREE_BLOCK) {
+    coalesced_block_after = next_block;
     free_header.size += next_block->size + sizeof(*next_block);
     insert_before_fh = next_block->next;
   }
@@ -209,6 +213,14 @@ void my_free(void *ptr) {
   free_header.next = insert_before_fh;
   memcpy(coalesced_fh_begin, &free_header, sizeof(free_header));
   insert_after_fh->next = coalesced_fh_begin;
+
+  if (prev_fh == coalesced_block_before || prev_fh == coalesced_block_after ||
+      next_fh == coalesced_block_before || next_fh == coalesced_block_after) {
+    prev_fh = insert_after_fh;
+    next_fh = coalesced_fh_begin;
+  } else if (next_fh == coalesced_fh_begin->next) {
+    prev_fh = coalesced_fh_begin;
+  }
 }
 
 void my_clean(void) {
