@@ -65,8 +65,6 @@ free_header_t head_free_list = {
 typedef struct {
   unsigned int type : 1;
   unsigned int size : 15; // Size of the allocated memory. Excludes header.
-  unsigned int
-      prev_free_size : 15; // Size of the previous chunk in memory (w/ header)
 } alloc_header_t;
 
 int my_init(void) {
@@ -106,8 +104,6 @@ void *my_alloc(int size) {
       free_header_t free_header = *next_fh; // Make a copy of this header
       alloc_header = (alloc_header_t *)next_fh;
       alloc_header->size = size;
-      alloc_header->prev_free_size = 0; // Allocating at beginning of free
-                                        // block, nothing is free just before
       alloc_header->type = ALLOC_BLOCK;
 
       if (remaining_space < sizeof(free_header)) {
@@ -132,18 +128,6 @@ void *my_alloc(int size) {
         next_fh->type = FREE_BLOCK;
         prev_fh->next = next_fh;
         updated_prev_free_size = next_fh->size;
-      }
-
-      // Now update the prev_free_size of block after the free block we
-      // initially chose, if the next one exists and is an allocated block
-      alloc_header_t *next_ah =
-          (alloc_header_t *)((char *)alloc_header + free_header.size +
-                             sizeof(free_header));
-      if ((char *)next_ah - (char *)page < PAGE_SIZE) {
-        // ^Check if there is actually a block after this free block
-        if (next_ah->type == ALLOC_BLOCK) {
-          next_ah->prev_free_size = updated_prev_free_size;
-        }
       }
     }
 
@@ -175,9 +159,7 @@ void *my_alloc(int size) {
 
 // Frees the region of memory given by ptr. It must be the pointer that my_alloc
 // defined, there's no check for it otherwise.
-void my_free(void *ptr) {
-  // alloc_header_t *header = (alloc_header_t *)(ptr - sizeof(alloc_header_t));
-}
+void my_free(void *ptr) {}
 
 void my_clean(void) {
   if (munmap(page, PAGE_SIZE) == -1) {
@@ -225,8 +207,7 @@ void print_memory() {
     alloc_header_t *alloc_header = (alloc_header_t *)ptr;
     switch (alloc_header->type) {
     case ALLOC_BLOCK: {
-      dprint("ALLOC\tSize:%d\tPrev Free Size:%d\n", alloc_header->size,
-             alloc_header->prev_free_size);
+      dprint("ALLOC\tSize:%d\n", alloc_header->size);
       ptr += alloc_header->size + sizeof(*alloc_header);
       break;
     }
