@@ -2,10 +2,38 @@
 //^ Defined for MAP_ANONYMOUS to be available
 #include <assert.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
+// Don't print unless DEBUG has been defined
+#ifdef DEBUG
+int dfprint(FILE *stream, const char *format, ...) {
+  // From https://stackoverflow.com/a/150560/5585431
+  va_list va;
+  int ret;
+
+  va_start(va, format);
+  ret = vfprintf(stream, format, va);
+  va_end(va);
+  return ret;
+}
+int dprint(const char *format, ...) {
+  // From https://stackoverflow.com/a/150560/5585431
+  va_list va;
+  int ret;
+
+  va_start(va, format);
+  ret = vfprintf(stdout, format, va);
+  va_end(va);
+  return ret;
+}
+#else  /* DEBUG */
+int dfprint(FILE *stream, const char *format, ...) { return 0; }
+int dprint(const char *format, ...) { return 0; }
+#endif /* DEBUG */
 
 static void *page;              // Don't allow access from outside this file
 const int PAGE_SIZE = 4 * 1024; // 4 KB
@@ -61,7 +89,7 @@ int my_init(void) {
 
 void *my_alloc(int size) {
   if (size % 8 != 0) {
-    fprintf(stderr, "size given to my_alloc not a multiple of 8\n");
+    dfprint(stderr, "size given to my_alloc not a multiple of 8\n");
     return NULL;
   }
 
@@ -135,7 +163,7 @@ void *my_alloc(int size) {
   }
 
   // Unable to allocate
-  fprintf(stderr, "Unable to find space for allocation\n");
+  dfprint(stderr, "Unable to find space for allocation\n");
   return NULL;
 }
 
@@ -168,12 +196,12 @@ void my_heapinfo() {
 }
 
 void print_free_list() {
-  printf("HEAD -> ");
+  dprint("HEAD -> ");
   free_header_t *curr = head_free_list.next;
   while (curr) {
     assert(curr->type == FREE_BLOCK);
-    printf("%d -> ", curr->size);
+    dprint("%d -> ", curr->size);
     curr = curr->next;
   }
-  printf("NULL\n");
+  dprint("NULL\n");
 }
