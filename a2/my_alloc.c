@@ -211,3 +211,33 @@ void print_free_list() {
   }
   dprint("NULL\n");
 }
+
+void print_info() {
+  dprint("Free Header size:\t%d\n", sizeof(free_header_t));
+  dprint("Alloc Header size:\t%d\n", sizeof(alloc_header_t));
+}
+
+void print_memory() {
+  dprint("\n----------------MEMORY-------------\n");
+
+  char *ptr = (char *)page;
+  while (ptr - (char *)page < PAGE_SIZE) {
+    alloc_header_t *alloc_header = (alloc_header_t *)ptr;
+    switch (alloc_header->type) {
+    case ALLOC_BLOCK: {
+      dprint("ALLOC\tSize:%d\tPrev Free Size:%d\n", alloc_header->size,
+             alloc_header->prev_free_size);
+      ptr += alloc_header->size + sizeof(*alloc_header);
+      break;
+    }
+    case FREE_BLOCK: {
+      free_header_t *free_header = (free_header_t *)ptr;
+      dprint("FREE\tSize:%d\n", free_header->size);
+      ptr += free_header->size + sizeof(*free_header);
+      break;
+    }
+    }
+  }
+
+  dprint("--------------END MEMORY-------------\n\n");
+}

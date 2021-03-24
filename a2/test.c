@@ -7,9 +7,12 @@ int main(void) {
     perror("my_init");
   }
 
+  print_info();
+  print_memory();
   void *h = my_alloc(200);
+  print_memory();
   void *s = my_alloc(200);
-  print_free_list();
+  print_memory();
 
   my_clean();
 }
