@@ -1,2 +1,2 @@
 all:
-	gcc test.c -o test -g
+	gcc test.c -Wpedantic -o test -g

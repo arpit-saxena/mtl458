@@ -8,7 +8,9 @@ int main(void) {
     perror("my_init");
   }
 
-  if (my_clean()) {
-    perror("my_clean");
-  }
+  void *h = my_alloc(200);
+  void *s = my_alloc(200);
+  print_free_list();
+
+  my_clean();
 }
