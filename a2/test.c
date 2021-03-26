@@ -7,11 +7,7 @@ void print_mem() {
   print_free_list();
 }
 
-int main(void) {
-  if (my_init()) {
-    perror("my_init");
-  }
-
+void test1() {
   print_info();
   // print_mem();
 
@@ -32,6 +28,32 @@ int main(void) {
 
   my_free(s);
   print_mem();
+
+  my_alloc(3504);
+  print_mem();
+
+  my_alloc(288);
+  print_mem();
+}
+
+void test2() {
+  void *a = my_alloc(80);
+  void *b = my_alloc(8);
+  void *c = my_alloc(80);
+
+  print_mem();
+
+  my_free(b);
+
+  print_mem();
+}
+
+int main(void) {
+  if (my_init()) {
+    perror("my_init");
+  }
+
+  test2();
 
   my_clean();
 }
