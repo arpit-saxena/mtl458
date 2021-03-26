@@ -97,6 +97,13 @@ void *my_alloc(int size) {
   }
 
   int search_size = size + sizeof(alloc_header_t);
+
+  // Need to make sure that this can eventually be freed
+  if (search_size < sizeof(free_header_t)) {
+    size += sizeof(free_header_t) - search_size;
+    search_size = sizeof(free_header_t);
+  }
+
   free_header_t *init_fh = next_fh;
   alloc_header_t *alloc_header = NULL;
   dprint("Starting alloc of size %d\n", size);
