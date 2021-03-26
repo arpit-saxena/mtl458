@@ -80,6 +80,11 @@ typedef struct {
 
 heap_info_t *heap_info = NULL;
 
+int get_chunk_size(free_header_t *fh) {
+  // TODO: Clarify and fix
+  return fh->size;
+}
+
 int my_init(void) {
   page = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -97,13 +102,40 @@ int my_init(void) {
   heap_info->curr_size = sizeof(*next_fh);
   heap_info->free_size = next_fh->size;
   heap_info->allocated_blocks = 0;
-  heap_info->smallest_chunk_size = next_fh->size; // TODO: Clarify and fix
-  heap_info->largest_chunk_size = next_fh->size;
+  heap_info->smallest_chunk_size = get_chunk_size(next_fh);
+  heap_info->largest_chunk_size = get_chunk_size(next_fh);
 
   head_free_list.next = next_fh;
   prev_fh = &head_free_list;
 
   return 0;
+}
+
+int min(int a, int b) { return a < b ? a : b; }
+int max(int a, int b) { return a > b ? a : b; }
+
+void recalculate_chunk_sizes() {
+  dprint("Recalculating chunk sizes!\n");
+  int min_size = PAGE_SIZE;
+  int max_size = 0;
+
+  free_header_t *fh = head_free_list.next;
+
+  if (!fh) { // No free node, nothing available
+    min_size = 0;
+    max_size = 0;
+  }
+
+  while (fh) {
+    // TODO: Clarify and fix
+    int curr_size = get_chunk_size(fh);
+    min_size = min(min_size, curr_size);
+    max_size = max(max_size, curr_size);
+    fh = fh->next;
+  }
+
+  heap_info->smallest_chunk_size = min_size;
+  heap_info->largest_chunk_size = max_size;
 }
 
 void *my_alloc(int size) {
@@ -125,6 +157,11 @@ void *my_alloc(int size) {
   free_header_t *init_fh = next_fh;
   alloc_header_t *alloc_header = NULL;
   dprint("Starting alloc of size %d\n", size);
+
+  // There can be a new free block created at the end of this. We need to keep
+  // track of its chunk size to be able to update heap_info if needed.
+  int new_chunk_size = -1;
+
   while (true) {
     int total_free_space = next_fh->size + sizeof(*next_fh);
     dprint("Total free space: %d\n", total_free_space);
@@ -142,7 +179,10 @@ void *my_alloc(int size) {
         remaining_space = 0;
       }
 
+      int new_used_space = alloc_header->size + sizeof(*alloc_header);
       if (remaining_space == 0) {
+        // Didn't need to make new free header
+        new_used_space -= sizeof(free_header_t);
         prev_fh->next = free_header.next;
         // This is set so that we move correctly to the next free header.
         // Otherwise we would skip the block that was after the current free
@@ -154,8 +194,23 @@ void *my_alloc(int size) {
         next_fh->next = free_header.next;
         next_fh->size = remaining_space - sizeof(free_header);
         next_fh->type = FREE_BLOCK;
+        int next_fh_chunk_size = get_chunk_size(next_fh);
+        if (next_fh_chunk_size < heap_info->smallest_chunk_size) {
+          heap_info->smallest_chunk_size = next_fh_chunk_size;
+        }
         prev_fh->next = next_fh;
       }
+
+      int fh_chunk_size = get_chunk_size(&free_header);
+      if (fh_chunk_size == heap_info->smallest_chunk_size ||
+          fh_chunk_size == heap_info->largest_chunk_size) {
+        // We just allocated a chunk which was either the smallest or largest
+        // available chunk. Recalculate chunk sizes.
+        recalculate_chunk_sizes();
+      }
+      heap_info->allocated_blocks++;
+      heap_info->curr_size += new_used_space;
+      heap_info->free_size -= new_used_space;
     }
 
     // If we were able to allocate space, or even otherwise, move to the next
@@ -204,14 +259,18 @@ void my_free(void *ptr) {
 
   free_header_t *coalesced_block_before = NULL;
   free_header_t *coalesced_block_after = NULL;
+
+  int freed_space = free_header.size;
   while (curr) {
     char *next_addr = (char *)curr + curr->size + sizeof(*curr);
     if (next_addr == (char *)alloc_header) {
+      // Free block just before. Merge
       coalesced_block_before = curr;
       coalesced_fh_begin = curr;
       free_header.size += curr->size + sizeof(*curr);
       insert_after_fh = prev;
       insert_before_fh = curr->next;
+      freed_space += sizeof(*curr);
       break;
     } else if ((char *)curr->next > (char *)alloc_header) {
       insert_after_fh = curr;
@@ -233,6 +292,7 @@ void my_free(void *ptr) {
     coalesced_block_after = next_block;
     free_header.size += next_block->size + sizeof(*next_block);
     insert_before_fh = next_block->next;
+    freed_space += sizeof(*next_block);
   }
 
   free_header.next = insert_before_fh;
@@ -246,6 +306,40 @@ void my_free(void *ptr) {
   } else if (next_fh == coalesced_fh_begin->next) {
     prev_fh = coalesced_fh_begin;
   }
+
+  bool recalculate = false;
+  int new_fh_chunk_size = get_chunk_size(&free_header);
+  if (new_fh_chunk_size > heap_info->largest_chunk_size) {
+    heap_info->largest_chunk_size = new_fh_chunk_size;
+  }
+  if (new_fh_chunk_size < heap_info->smallest_chunk_size ||
+      heap_info->smallest_chunk_size == 0) {
+    heap_info->smallest_chunk_size = new_fh_chunk_size;
+  }
+
+  int chunk_sizes[] = {-1, -1};
+  if (coalesced_block_before) {
+    chunk_sizes[0] = get_chunk_size(coalesced_block_before);
+  }
+  if (coalesced_block_after) {
+    chunk_sizes[1] = get_chunk_size(coalesced_block_after);
+  }
+  for (int i = 0; i < 2; i++) {
+    if (chunk_sizes[i] == -1) {
+      continue; // These chunks didn't exist
+    }
+    if (chunk_sizes[i] == heap_info->largest_chunk_size ||
+        chunk_sizes[i] == heap_info->smallest_chunk_size) {
+      recalculate = true;
+    }
+  }
+
+  if (recalculate) {
+    recalculate_chunk_sizes();
+  }
+  heap_info->curr_size -= freed_space;
+  heap_info->free_size += freed_space;
+  heap_info->allocated_blocks--;
 }
 
 void my_clean(void) {
