@@ -53,7 +53,8 @@ int main(void) {
     perror("my_init");
   }
 
-  test2();
+  print_info();
+  print_mem();
 
   my_clean();
 }

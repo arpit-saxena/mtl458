@@ -70,6 +70,16 @@ typedef struct {
   unsigned int size : 15; // Size of the allocated memory. Excludes header.
 } alloc_header_t;
 
+typedef struct {
+  int curr_size;
+  int free_size;
+  int allocated_blocks;
+  int smallest_chunk_size;
+  int largest_chunk_size;
+} heap_info_t;
+
+heap_info_t *heap_info = NULL;
+
 int my_init(void) {
   page = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -77,10 +87,18 @@ int my_init(void) {
     return errno;
   }
 
-  next_fh = (free_header_t *)page;
+  heap_info = (heap_info_t *)page;
+
+  next_fh = (free_header_t *)((char *)page + sizeof(*heap_info));
   next_fh->type = FREE_BLOCK;
-  next_fh->size = PAGE_SIZE - sizeof(*next_fh);
+  next_fh->size = PAGE_SIZE - sizeof(*next_fh) - sizeof(*heap_info);
   next_fh->next = NULL;
+
+  heap_info->curr_size = sizeof(*next_fh);
+  heap_info->free_size = next_fh->size;
+  heap_info->allocated_blocks = 0;
+  heap_info->smallest_chunk_size = next_fh->size; // TODO: Clarify and fix
+  heap_info->largest_chunk_size = next_fh->size;
 
   head_free_list.next = next_fh;
   prev_fh = &head_free_list;
@@ -237,16 +255,14 @@ void my_clean(void) {
 }
 
 void my_heapinfo() {
-  int a, b, c, d, e, f;
-
   // Do not edit below output format
   printf("=== Heap Info ================\n");
-  printf("Max Size: %d\n", a);
-  printf("Current Size: %d\n", b);
-  printf("Free Memory: %d\n", c);
-  printf("Blocks allocated: %d\n", d);
-  printf("Smallest available chunk: %d\n", e);
-  printf("Largest available chunk: %d\n", f);
+  printf("Max Size: %d\n", PAGE_SIZE - sizeof(*heap_info));
+  printf("Current Size: %d\n", heap_info->curr_size);
+  printf("Free Memory: %d\n", heap_info->free_size);
+  printf("Blocks allocated: %d\n", heap_info->allocated_blocks);
+  printf("Smallest available chunk: %d\n", heap_info->smallest_chunk_size);
+  printf("Largest available chunk: %d\n", heap_info->largest_chunk_size);
   printf("==============================\n");
   // Do not edit above output format
   return;
@@ -267,12 +283,22 @@ void print_free_list() {
 void print_info() {
   dprint("Free Header size:\t%d\n", sizeof(free_header_t));
   dprint("Alloc Header size:\t%d\n", sizeof(alloc_header_t));
+  dprint("Heap info struct size:\t%d\n", sizeof(*heap_info));
 }
 
 void print_memory() {
   dprint("\n----------------MEMORY-------------\n");
 
-  char *ptr = (char *)page;
+  dprint("============== Heap Info ==============\n");
+  dprint("Max Size:\t\t\t%d\n", PAGE_SIZE - sizeof(*heap_info));
+  dprint("Current Size:\t\t\t%d\n", heap_info->curr_size);
+  dprint("Free Memory:\t\t\t%d\n", heap_info->free_size);
+  dprint("Blocks allocated:\t\t%d\n", heap_info->allocated_blocks);
+  dprint("Smallest available chunk:\t%d\n", heap_info->smallest_chunk_size);
+  dprint("Largest available chunk:\t%d\n", heap_info->largest_chunk_size);
+  dprint("=======================================\n");
+
+  char *ptr = (char *)page + sizeof(*heap_info);
   while (ptr - (char *)page < PAGE_SIZE) {
     alloc_header_t *alloc_header = (alloc_header_t *)ptr;
     switch (alloc_header->type) {
