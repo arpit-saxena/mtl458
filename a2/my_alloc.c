@@ -121,11 +121,20 @@ void recalculate_chunk_sizes() {
     max_size = 0;
   }
 
+  bool set_min = false;
   while (fh) {
     int curr_size = get_chunk_size(fh);
-    min_size = min(min_size, curr_size);
+    if (curr_size != 0) { // Don't want to include 0 sized chunk when non-zero
+                          // ones are present
+      min_size = min(min_size, curr_size);
+      set_min = true;
+    }
     max_size = max(max_size, curr_size);
     fh = fh->next;
+  }
+
+  if (!set_min) { // => No non zero chunk, so set min to 0
+    min_size = 0;
   }
 
   heap_info->smallest_chunk_size = min_size;
@@ -189,7 +198,8 @@ void *my_alloc(int size) {
         next_fh->size = remaining_space - sizeof(free_header);
         next_fh->type = FREE_BLOCK;
         int next_fh_chunk_size = get_chunk_size(next_fh);
-        if (next_fh_chunk_size < heap_info->smallest_chunk_size) {
+        if (next_fh_chunk_size < heap_info->smallest_chunk_size &&
+            next_fh_chunk_size != 0) {
           heap_info->smallest_chunk_size = next_fh_chunk_size;
         }
         prev_fh->next = next_fh;
