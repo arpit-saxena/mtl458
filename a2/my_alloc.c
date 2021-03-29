@@ -413,7 +413,15 @@ void print_memory() {
     }
     case FREE_BLOCK: {
       free_header_t *free_header = (free_header_t *)ptr;
-      dprint("FREE\tSize:%d\n", free_header->size);
+      dprint("FREE\tSize:%d", free_header->size);
+      if (free_header == next_fh) {
+        dprint("\t<--NEXT_FH");
+      }
+      if (free_header == prev_fh) {
+        dprint("\t<--PREV_FH");
+      }
+      dprint("\n");
+
       ptr += free_header->size + sizeof(*free_header);
       break;
     }
