@@ -72,7 +72,6 @@ typedef struct {
 
 typedef struct {
   int curr_size;
-  int free_size;
   int allocated_blocks;
   int smallest_chunk_size;
   int largest_chunk_size;
@@ -97,7 +96,6 @@ int my_init(void) {
   next_fh->next = NULL;
 
   heap_info->curr_size = sizeof(*next_fh);
-  heap_info->free_size = next_fh->size;
   heap_info->allocated_blocks = 0;
   heap_info->smallest_chunk_size = get_chunk_size(next_fh);
   heap_info->largest_chunk_size = get_chunk_size(next_fh);
@@ -206,7 +204,6 @@ void *my_alloc(int size) {
       }
       heap_info->allocated_blocks++;
       heap_info->curr_size += new_used_space;
-      heap_info->free_size -= new_used_space;
     }
 
     // If we were able to allocate space, or even otherwise, move to the next
@@ -334,7 +331,6 @@ void my_free(void *ptr) {
     recalculate_chunk_sizes();
   }
   heap_info->curr_size -= freed_space;
-  heap_info->free_size += freed_space;
   heap_info->allocated_blocks--;
 }
 
@@ -345,11 +341,12 @@ void my_clean(void) {
 }
 
 void my_heapinfo() {
+  int max_size = PAGE_SIZE - sizeof(*heap_info);
   // Do not edit below output format
   printf("=== Heap Info ================\n");
-  printf("Max Size: %d\n", PAGE_SIZE - sizeof(*heap_info));
+  printf("Max Size: %d\n", max_size);
   printf("Current Size: %d\n", heap_info->curr_size);
-  printf("Free Memory: %d\n", heap_info->free_size);
+  printf("Free Memory: %d\n", max_size - heap_info->curr_size);
   printf("Blocks allocated: %d\n", heap_info->allocated_blocks);
   printf("Smallest available chunk: %d\n", heap_info->smallest_chunk_size);
   printf("Largest available chunk: %d\n", heap_info->largest_chunk_size);
@@ -379,10 +376,11 @@ void print_info() {
 void print_memory() {
   dprint("\n----------------MEMORY-------------\n");
 
+  int max_size = PAGE_SIZE - sizeof(*heap_info);
   dprint("============== Heap Info ==============\n");
   dprint("Max Size:\t\t\t%d\n", PAGE_SIZE - sizeof(*heap_info));
   dprint("Current Size:\t\t\t%d\n", heap_info->curr_size);
-  dprint("Free Memory:\t\t\t%d\n", heap_info->free_size);
+  dprint("Free Memory:\t\t\t%d\n", max_size - heap_info->curr_size);
   dprint("Blocks allocated:\t\t%d\n", heap_info->allocated_blocks);
   dprint("Smallest available chunk:\t%d\n", heap_info->smallest_chunk_size);
   dprint("Largest available chunk:\t%d\n", heap_info->largest_chunk_size);
