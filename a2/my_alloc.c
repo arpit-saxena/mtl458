@@ -144,6 +144,11 @@ void recalculate_chunk_sizes() {
 void *my_alloc(int size) {
   assert(prev_fh->next == next_fh);
 
+  if (!next_fh) { // Nothing is free
+    dfprint(stderr, "Unable to allocate. No free space!\n");
+    return NULL;
+  }
+
   if (size % 8 != 0) {
     dfprint(stderr, "size given to my_alloc not a multiple of 8\n");
     return NULL;
