@@ -80,10 +80,7 @@ typedef struct {
 
 heap_info_t *heap_info = NULL;
 
-int get_chunk_size(free_header_t *fh) {
-  // TODO: Clarify and fix
-  return fh->size;
-}
+int get_chunk_size(free_header_t *fh) { return fh->size; }
 
 int my_init(void) {
   page = mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE,
@@ -127,7 +124,6 @@ void recalculate_chunk_sizes() {
   }
 
   while (fh) {
-    // TODO: Clarify and fix
     int curr_size = get_chunk_size(fh);
     min_size = min(min_size, curr_size);
     max_size = max(max_size, curr_size);
