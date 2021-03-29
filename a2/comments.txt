@@ -1,3 +1,3 @@
 4 next-fit
 
-TODO: Explanation
+A struct consisting of current size, number of allocated blocks, smallest chunk size and largest chunk size is stored in the beginning of the 4KB memory. Since only this struct is used and it has constant size, max size is constant and free space can be calculated as max size - current size. On each free or alloc, if the free blocks changed were the minimum or maximum sized ones, the values of max and min chunk sizes is recomputed by going through the free list. If they go below or above the min and max chunk sizes respectively, the chunk sizes are simply updated. Number of allocated blocks is a simple increment/decrement and current size's change is also calculated in each alloc/free without traversing the free list. This way, we needn't go through the free list after each invocation of my_alloc/my_free.
