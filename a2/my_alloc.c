@@ -268,6 +268,8 @@ void my_free(void *ptr) {
                                .type = FREE_BLOCK};
   free_header_t *coalesced_fh_begin = NULL;
 
+  // These are set to satisfy curr == NULL i.e. fully empty free list
+  // Otherwise, they'll get updated in the coming loop
   free_header_t *insert_after_fh = prev;
   free_header_t *insert_before_fh = curr;
 
@@ -275,7 +277,15 @@ void my_free(void *ptr) {
   free_header_t *coalesced_block_after = NULL;
 
   int freed_space = free_header.size;
-  while (curr) {
+  bool found_space = false;
+  if ((char *)curr > (char *)alloc_header) {
+    insert_after_fh = prev;
+    insert_before_fh = curr;
+    found_space = true;
+  }
+
+  while (curr && !found_space) {
+    // INV: curr < alloc_header
     char *next_addr = (char *)curr + curr->size + sizeof(*curr);
     if (next_addr == (char *)alloc_header) {
       // Free block just before. Merge
@@ -286,7 +296,10 @@ void my_free(void *ptr) {
       insert_before_fh = curr->next;
       freed_space += sizeof(*curr);
       break;
-    } else if ((char *)curr->next > (char *)alloc_header) {
+    } else if ((char *)curr->next > (char *)alloc_header || !curr->next) {
+      // We had not found any found any free block just before the block we want
+      // to free, so if next free block is ahead of alloc_header or this is end
+      // of the list, then break
       insert_after_fh = curr;
       insert_before_fh = curr->next;
       break;
