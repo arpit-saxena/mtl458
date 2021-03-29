@@ -326,11 +326,12 @@ void my_free(void *ptr) {
   memcpy(coalesced_fh_begin, &free_header, sizeof(free_header));
   insert_after_fh->next = coalesced_fh_begin;
 
-  if (prev_fh == coalesced_block_before || prev_fh == coalesced_block_after ||
-      next_fh == coalesced_block_before || next_fh == coalesced_block_after) {
+  if (next_fh == coalesced_block_before || next_fh == coalesced_block_after) {
     prev_fh = insert_after_fh;
     next_fh = coalesced_fh_begin;
-  } else if (next_fh == coalesced_fh_begin->next) {
+  } else if (prev_fh == coalesced_block_before ||
+             prev_fh == coalesced_block_after ||
+             next_fh == coalesced_fh_begin->next /* When prev_fh is head */) {
     prev_fh = coalesced_fh_begin;
   }
 
