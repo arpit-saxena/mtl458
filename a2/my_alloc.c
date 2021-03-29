@@ -246,6 +246,12 @@ void *my_alloc(int size) {
 // defined, there's no check for it otherwise.
 void my_free(void *ptr) {
   dprint("Starting free\n");
+
+  // No op in case ptr is NULL
+  if (!ptr) {
+    return;
+  }
+
   alloc_header_t *alloc_header =
       (alloc_header_t *)((char *)ptr - sizeof(alloc_header_t));
   free_header_t *prev = &head_free_list;
