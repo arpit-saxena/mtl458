@@ -74,12 +74,6 @@ struct cmdline_args_t extract_cmdline_args(int argc, char *argv[]) {
   return args;
 }
 
-void cleanup(FILE *input_file) {
-  if (fclose(input_file)) {
-    perror("fclose");
-  }
-}
-
 int main(int argc, char *argv[]) {
   struct cmdline_args_t args = extract_cmdline_args(argc, argv);
 
@@ -87,5 +81,7 @@ int main(int argc, char *argv[]) {
   printf("Strategy: %d\n", args.strategy);
   printf("Verbose: %d\n", args.verbose);
 
-  cleanup(args.input_file);
+  if (fclose(args.input_file)) {
+    perror("fclose");
+  }
 }
