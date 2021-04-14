@@ -139,6 +139,79 @@ struct memory_op *get_all_accesses(FILE *file, int *size) {
   return mem_accesses;
 }
 
+struct page_table_entry {
+  int frame_num;
+  bool valid;
+  bool dirty;
+};
+
+struct page_table_entry page_table[1 << VPN_BITS];
+int next_free_frame = 0;
+
+struct {
+  int mem_accesses; // Memory accesses
+  int num_misses;   // Number of Page Faults
+  int num_writes;   // Number of writes to the disk
+  int num_drops;    // Number of drops
+} stats;
+
+void get_page_from_disk(struct page_table_entry *pte, int num_frames) {
+  stats.num_misses++;
+  pte->dirty = false;
+  pte->valid = true;
+
+  if (next_free_frame < num_frames) {
+    pte->frame_num = next_free_frame++;
+  } else {
+    // Need to evict
+    struct page_table_entry *pte_evict = get_page_evict();
+    pte_evict->valid = false;
+    if (pte_evict->dirty) {
+      stats.num_writes++;
+    } else {
+      stats.num_drops++;
+    }
+    pte->frame_num = pte_evict->frame_num;
+  }
+}
+
+void perform_read(struct page_table_entry *pte, int num_frames) {
+  if (pte->valid) {
+    return;
+  }
+
+  // Translation not valid, need to bring page from disk.
+  get_page_from_disk(pte, num_frames);
+  perform_read(pte, num_frames);
+}
+
+void perform_write(struct page_table_entry *pte, int num_frames) {
+  if (pte->valid) {
+    pte->dirty = true;
+    return;
+  }
+
+  // Translation not valid, need to bring page from disk.
+  get_page_from_disk(pte, num_frames);
+  perform_write(pte, num_frames);
+}
+
+void perform_op(struct memory_op op, int num_frames) {
+  assert(op.page_num < (1 << VPN_BITS) && op.page_num >= 0 &&
+         "Virtual Page Number must fit into the bits reserved for it");
+
+  stats.mem_accesses++;
+  struct page_table_entry *pte = &page_table[op.page_num];
+  switch (op.type) {
+  case READ:
+    perform_read(pte, num_frames);
+    break;
+  case WRITE:
+    perform_write(pte, num_frames);
+    break;
+  }
+}
+
 int main(int argc, char *argv[]) {
   struct cmdline_args_t args = extract_cmdline_args(argc, argv);
 
