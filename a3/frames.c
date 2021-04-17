@@ -205,7 +205,17 @@ struct page_table_entry *evict_page_clock(struct page_table_entry *new_page) {
 }
 
 struct page_table_entry *evict_page_lru(struct page_table_entry *new_page) {
-  return NULL;
+  int min_used_at = frame_list[0]->used_at;
+  int min_index = 0;
+  for (int i = 1; i < cmdline_args.num_frames; i++) {
+    if (frame_list[i]->used_at < min_used_at) {
+      min_used_at = frame_list[i]->used_at;
+      min_index = i;
+    }
+  }
+  struct page_table_entry *ret = frame_list[min_index];
+  frame_list[min_index] = new_page;
+  return ret;
 }
 
 struct page_table_entry *evict_page_random(struct page_table_entry *new_page) {
@@ -295,6 +305,7 @@ void perform_op(struct memory_op op) {
 
   stats.mem_accesses++;
   struct page_table_entry *pte = &page_table[op.page_num];
+  count_access(pte);
   pte->page_num = op.page_num;
   switch (op.type) {
   case READ:
