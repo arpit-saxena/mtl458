@@ -279,8 +279,29 @@ struct page_table_entry *evict_page_opt(struct page_table_entry *new_page) {
   assert(0 && "The code should never reach here");
 }
 
+int clock_hand = 0;
 struct page_table_entry *evict_page_clock(struct page_table_entry *new_page) {
-  return NULL;
+  int begin = clock_hand;
+  do {
+    if (frame_list[clock_hand]->use) {
+      frame_list[clock_hand]->use = false;
+      clock_hand = (clock_hand + 1) % cmdline_args.num_frames;
+      continue;
+    }
+
+    struct page_table_entry *ret = frame_list[clock_hand];
+    frame_list[clock_hand] = new_page;
+    new_page->use = true;
+    clock_hand = (clock_hand + 1) % cmdline_args.num_frames;
+    return ret;
+  } while (begin != clock_hand);
+
+  // begin == clock_hand ^ all pages had use bit set
+  struct page_table_entry *ret = frame_list[clock_hand];
+  frame_list[clock_hand] = new_page;
+  new_page->use = true;
+  clock_hand = (clock_hand + 1) % cmdline_args.num_frames;
+  return ret;
 }
 
 struct page_table_entry *evict_page_lru(struct page_table_entry *new_page) {
