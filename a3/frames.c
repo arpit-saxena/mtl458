@@ -84,6 +84,12 @@ struct memory_op {
   enum { READ, WRITE } type;
 };
 
+struct condensed_memory_op {
+  int page_num;
+  bool read;
+  bool write;
+};
+
 struct memory_op get_next_access(FILE *file) {
   struct memory_op op;
   char access_type;
@@ -137,6 +143,40 @@ struct memory_op *get_all_accesses(FILE *file, int *size) {
   }
 
   return mem_accesses;
+}
+
+struct condensed_memory_op *condense_accesses(struct memory_op *mem_accesses,
+                                              int num_accesses,
+                                              int *num_condensed_accesses) {
+  struct condensed_memory_op *ops =
+      malloc(num_accesses * sizeof(struct condensed_memory_op));
+
+  int idx = 0;
+
+  int page_num = mem_accesses[0].page_num;
+  bool read = mem_accesses[0].type == READ;
+  bool write = mem_accesses[0].type == WRITE;
+  for (int i = 1; i < num_accesses + 1; i++) {
+    if (i == num_accesses || mem_accesses[i].page_num != page_num) {
+      ops[idx++] = (struct condensed_memory_op){
+          .page_num = page_num, .read = read, .write = write};
+
+      if (i == num_accesses) {
+        break;
+      }
+
+      page_num = mem_accesses[i].page_num;
+      read = mem_accesses[i].type == READ;
+      write = mem_accesses[i].type == WRITE;
+    } else {
+      read = read || mem_accesses[i].type == READ;
+      write = write || mem_accesses[i].type == WRITE;
+    }
+  }
+
+  *num_condensed_accesses = idx;
+  return realloc(ops,
+                 *num_condensed_accesses * sizeof(struct condensed_memory_op));
 }
 
 struct page_table_entry {
@@ -299,21 +339,18 @@ void perform_write(struct page_table_entry *pte) {
   perform_write(pte);
 }
 
-void perform_op(struct memory_op op) {
+void perform_op(struct condensed_memory_op op) {
   assert(op.page_num < (1 << VPN_BITS) && op.page_num >= 0 &&
          "Virtual Page Number must fit into the bits reserved for it");
 
-  stats.mem_accesses++;
   struct page_table_entry *pte = &page_table[op.page_num];
   count_access(pte);
   pte->page_num = op.page_num;
-  switch (op.type) {
-  case READ:
+  if (op.read) {
     perform_read(pte);
-    break;
-  case WRITE:
+  }
+  if (op.write) {
     perform_write(pte);
-    break;
   }
 }
 
@@ -341,12 +378,18 @@ int main(int argc, char *argv[]) {
   int num_accesses = 0;
   struct memory_op *mem_accesses =
       get_all_accesses(cmdline_args.input_file, &num_accesses);
+  stats.mem_accesses = num_accesses;
 
-  for (curr_access = 0; curr_access < num_accesses; curr_access++) {
-    perform_op(mem_accesses[curr_access]);
+  int num_condensed_accesses = 0;
+  struct condensed_memory_op *condensed_mem_accesses =
+      condense_accesses(mem_accesses, num_accesses, &num_condensed_accesses);
+  free(mem_accesses);
+
+  for (curr_access = 0; curr_access < num_condensed_accesses; curr_access++) {
+    perform_op(condensed_mem_accesses[curr_access]);
   }
   print_stats();
 
-  free(mem_accesses);
+  free(condensed_mem_accesses);
   cleanup();
 }
