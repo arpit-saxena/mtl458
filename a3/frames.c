@@ -144,8 +144,9 @@ struct page_table_entry {
   int frame_num;
   bool valid;
   bool dirty;
-  bool use;    // For CLOCK
-  int used_at; // FOR LRU
+  bool use;     // For CLOCK
+  int used_at;  // FOR LRU
+  int num_uses; // FOR OPT
 };
 
 struct page_table_entry *page_table;
@@ -165,17 +166,26 @@ void print_stats() {
   printf("Number of drops: %d\n", stats.num_drops);
 }
 
-enum strategy_t evict_strat;
+// Trying to store results of future uses in the page table itself. This will
+// help keep track of till which index in the mem_accesses list have we looked.
+int counted_till = -1;
 
 // Assuming this doesn't overflow. This is realistic since >1e9 memory accesses
 // would take a long time to simulate
 int access_num = 0;
-void count_access(struct page_table_entry *pte) {
+void count_access(struct page_table_entry *pte, int access_idx) {
   pte->use = 1;
   pte->used_at = access_num++;
+
+  // pte->num_uses counts the number of uses of this page in the future.
+  // Decrement it since this access is no longer in the future
+  if (access_idx <= counted_till) {
+    pte->num_uses--;
+  }
 }
 
 struct memory_op *mem_accesses;
+int num_accesses;
 int curr_access;
 
 struct page_table_entry **frame_list;
@@ -188,16 +198,58 @@ struct page_table_entry *evict_page_fifo(struct page_table_entry *new_page) {
   return ret;
 }
 
+int max(int a, int b) { return a >= b ? a : b; }
+
 struct page_table_entry *evict_page_opt() {
-  int size = cmdline_args.num_frames * sizeof(bool);
-  bool *accesses = malloc(size);
-  memset(accesses, 0, size);
+  // Initially missing_frame = 0 ^ 1 ^ 2 ^ ... ^ (num_frames - 1)
+  // For each frame i accessed we do missing_frame ^= i
+  // When (num_frames - 1) frames are accessed, missing_frame would contain
+  // index of the frame which wasn't accessed
 
-  // TODO
+  int missing_frame = 0;
+  for (int i = 0; i < cmdline_args.num_frames; i++) {
+    missing_frame ^= i;
+  }
 
-  free(accesses);
+  int accesses[cmdline_args.num_frames];
+  int num_frames_accessed = 0;
+  for (int i = 0; i < cmdline_args.num_frames; i++) {
+    accesses[i] = frame_list[i]->num_uses;
+    if (accesses[i] > 0) {
+      num_frames_accessed++;
+      missing_frame ^= i;
+    }
+  }
 
-  return NULL;
+  for (int i = max(curr_access, counted_till + 1); i < num_accesses; i++) {
+    assert(num_frames_accessed < cmdline_args.num_frames);
+    if (num_frames_accessed == cmdline_args.num_frames - 1) {
+      counted_till = i - 1;
+      return frame_list[missing_frame];
+    }
+
+    struct page_table_entry *pte = &page_table[mem_accesses[i].page_num];
+    if (pte->valid) {
+      accesses[pte->frame_num]++;
+
+      if (pte->num_uses == 0) {
+        num_frames_accessed++;
+        missing_frame ^= pte->frame_num;
+      }
+    }
+    pte->num_uses++;
+  }
+
+  // There are more than one frames which aren't accessed anywhere in the
+  // future, so we'll evict the one with minimum frame number
+  counted_till = cmdline_args.num_frames - 1;
+  for (int i = 0; i < cmdline_args.num_frames; i++) {
+    if (frame_list[i]->num_uses == 0) {
+      return frame_list[i];
+    }
+  }
+
+  assert(0 && "The code should never reach here");
 }
 
 struct page_table_entry *evict_page_clock(struct page_table_entry *new_page) {
@@ -258,15 +310,14 @@ void print_verbose(int written_page, int read_page, bool dirty) {
 
 void get_page_from_disk(struct page_table_entry *pte) {
   stats.num_misses++;
-  pte->dirty = false;
-  pte->valid = true;
 
   if (next_free_frame < cmdline_args.num_frames) {
     pte->frame_num = next_free_frame++;
-    frame_list[pte->frame_num] = pte;
   } else {
     // Need to evict
     struct page_table_entry *pte_evict = get_page_evict(pte);
+    assert(pte_evict->valid &&
+           "Page to evict must be in memory in the first place");
     pte_evict->valid = false;
     if (pte_evict->dirty) {
       stats.num_writes++;
@@ -276,6 +327,10 @@ void get_page_from_disk(struct page_table_entry *pte) {
     pte->frame_num = pte_evict->frame_num;
     print_verbose(pte_evict->page_num, pte->page_num, pte_evict->dirty);
   }
+
+  frame_list[pte->frame_num] = pte;
+  pte->dirty = false;
+  pte->valid = true;
 }
 
 void perform_read(struct page_table_entry *pte) {
@@ -299,13 +354,13 @@ void perform_write(struct page_table_entry *pte) {
   perform_write(pte);
 }
 
-void perform_op(struct memory_op op) {
+void perform_op(struct memory_op op, int access_idx) {
   assert(op.page_num < (1 << VPN_BITS) && op.page_num >= 0 &&
          "Virtual Page Number must fit into the bits reserved for it");
 
   stats.mem_accesses++;
   struct page_table_entry *pte = &page_table[op.page_num];
-  count_access(pte);
+  count_access(pte, access_idx);
   pte->page_num = op.page_num;
   switch (op.type) {
   case READ:
@@ -338,12 +393,16 @@ int main(int argc, char *argv[]) {
 
   init();
 
-  int num_accesses = 0;
-  struct memory_op *mem_accesses =
-      get_all_accesses(cmdline_args.input_file, &num_accesses);
+  num_accesses = 0;
+  mem_accesses = get_all_accesses(cmdline_args.input_file, &num_accesses);
 
   for (curr_access = 0; curr_access < num_accesses; curr_access++) {
-    perform_op(mem_accesses[curr_access]);
+    perform_op(mem_accesses[curr_access], curr_access);
+
+    printf("Current Access: %d\n", curr_access);
+    for (int i = 0; i < cmdline_args.num_frames; i++) {
+      assert(!frame_list[i] || frame_list[i]->valid);
+    }
   }
   print_stats();
 
