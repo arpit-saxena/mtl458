@@ -158,6 +158,13 @@ struct {
   int num_drops;    // Number of drops
 } stats;
 
+void print_stats() {
+  printf("Number of memory accesses: %d\n", stats.mem_accesses);
+  printf("Number of misses: %d\n", stats.num_misses);
+  printf("Number of writes: %d\n", stats.num_writes);
+  printf("Number of drops: %d\n", stats.num_drops);
+}
+
 enum strategy_t evict_strat;
 
 // Assuming this doesn't overflow. This is realistic since >1e9 memory accesses
@@ -317,10 +324,6 @@ int main(int argc, char *argv[]) {
 
   init();
 
-  printf("Num frames: %d\n", cmdline_args.num_frames);
-  printf("Strategy: %d\n", cmdline_args.strategy);
-  printf("Verbose: %d\n", cmdline_args.verbose);
-
   int num_accesses = 0;
   struct memory_op *mem_accesses =
       get_all_accesses(cmdline_args.input_file, &num_accesses);
@@ -328,6 +331,7 @@ int main(int argc, char *argv[]) {
   for (curr_access = 0; curr_access < num_accesses; curr_access++) {
     perform_op(mem_accesses[curr_access]);
   }
+  print_stats();
 
   free(mem_accesses);
   cleanup();
