@@ -233,7 +233,7 @@ struct page_table_entry *evict_page_fifo(struct page_table_entry *new_page) {
 
 int max(int a, int b) { return a >= b ? a : b; }
 
-struct page_table_entry *evict_page_opt() {
+struct page_table_entry *evict_page_opt(struct page_table_entry *new_page) {
   // Initially missing_frame = 0 ^ 1 ^ 2 ^ ... ^ (num_frames - 1)
   // For each frame i accessed we do missing_frame ^= i
   // When (num_frames - 1) frames are accessed, missing_frame would contain
@@ -251,7 +251,9 @@ struct page_table_entry *evict_page_opt() {
 
   for (int i = curr_access; i < num_condensed_accesses; i++) {
     if (num_frames_accessed == cmdline_args.num_frames - 1) {
-      return frame_list[missing_frame];
+      struct page_table_entry *ret = frame_list[missing_frame];
+      frame_list[missing_frame] = new_page;
+      return ret;
     }
 
     struct page_table_entry *pte =
@@ -268,7 +270,9 @@ struct page_table_entry *evict_page_opt() {
   counted_till = cmdline_args.num_frames - 1;
   for (int i = 0; i < cmdline_args.num_frames; i++) {
     if (!accessed[i]) {
-      return frame_list[i];
+      struct page_table_entry *ret = frame_list[i];
+      frame_list[i] = new_page;
+      return ret;
     }
   }
 
