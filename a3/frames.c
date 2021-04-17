@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-const int ADDR_BITS = 32;
-const int PAGE_SIZE_BITS = 12; // 4 KiB
+#define ADDR_BITS 32
+#define PAGE_SIZE_BITS 12
 const int VPN_BITS = ADDR_BITS - PAGE_SIZE_BITS;
 
 enum strategy_t { OPT, FIFO, CLOCK, LRU, RANDOM };
