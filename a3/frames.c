@@ -338,13 +338,14 @@ void print_verbose(int written_page, int read_page, bool dirty) {
   if (!cmdline_args.verbose)
     return;
   if (dirty) {
-    printf(
-        "Page 0x%5x was read from disk, page 0x%5x was written to the disk.\n",
-        read_page, written_page);
-  } else {
-    printf("Page 0x%5x was read from disk, page 0x%5x was dropped (it was not "
-           "dirty).\n",
+    printf("Page 0x%05x was read from disk, page 0x%05x was written to the "
+           "disk.\n",
            read_page, written_page);
+  } else {
+    printf(
+        "Page 0x%05x was read from disk, page 0x%05x was dropped (it was not "
+        "dirty).\n",
+        read_page, written_page);
   }
 }
 
