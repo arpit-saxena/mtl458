@@ -209,7 +209,10 @@ struct page_table_entry *evict_page_lru(struct page_table_entry *new_page) {
 }
 
 struct page_table_entry *evict_page_random(struct page_table_entry *new_page) {
-  return NULL;
+  int frame_num = rand() % cmdline_args.num_frames;
+  struct page_table_entry *ret = frame_list[frame_num];
+  frame_list[frame_num] = new_page;
+  return ret;
 }
 
 struct page_table_entry *get_page_evict(struct page_table_entry *new_page) {
