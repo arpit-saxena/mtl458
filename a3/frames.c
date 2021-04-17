@@ -184,9 +184,8 @@ struct page_table_entry {
   int frame_num;
   bool valid;
   bool dirty;
-  bool use;     // For CLOCK
-  int used_at;  // FOR LRU
-  int num_uses; // FOR OPT
+  bool use;    // For CLOCK
+  int used_at; // FOR LRU
 };
 
 struct page_table_entry *page_table;
@@ -216,16 +215,10 @@ int access_num = 0;
 void count_access(struct page_table_entry *pte, int access_idx) {
   pte->use = 1;
   pte->used_at = access_num++;
-
-  // pte->num_uses counts the number of uses of this page in the future.
-  // Decrement it since this access is no longer in the future
-  if (access_idx <= counted_till) {
-    pte->num_uses--;
-  }
 }
 
-struct memory_op *mem_accesses;
-int num_accesses;
+struct condensed_memory_op *condensed_mem_accesses;
+int num_condensed_accesses;
 int curr_access;
 
 struct page_table_entry **frame_list;
@@ -251,40 +244,30 @@ struct page_table_entry *evict_page_opt() {
     missing_frame ^= i;
   }
 
-  int accesses[cmdline_args.num_frames];
-  int num_frames_accessed = 0;
-  for (int i = 0; i < cmdline_args.num_frames; i++) {
-    accesses[i] = frame_list[i]->num_uses;
-    if (accesses[i] > 0) {
-      num_frames_accessed++;
-      missing_frame ^= i;
-    }
-  }
+  bool accessed[cmdline_args.num_frames];
+  memset(accessed, 0, sizeof(accessed));
 
-  for (int i = max(curr_access, counted_till + 1); i < num_accesses; i++) {
-    assert(num_frames_accessed < cmdline_args.num_frames);
+  int num_frames_accessed = 0;
+
+  for (int i = curr_access; i < num_condensed_accesses; i++) {
     if (num_frames_accessed == cmdline_args.num_frames - 1) {
-      counted_till = i - 1;
       return frame_list[missing_frame];
     }
 
-    struct page_table_entry *pte = &page_table[mem_accesses[i].page_num];
-    if (pte->valid) {
-      accesses[pte->frame_num]++;
-
-      if (pte->num_uses == 0) {
-        num_frames_accessed++;
-        missing_frame ^= pte->frame_num;
-      }
+    struct page_table_entry *pte =
+        &page_table[condensed_mem_accesses[i].page_num];
+    if (pte->valid && !accessed[pte->frame_num]) {
+      num_frames_accessed++;
+      missing_frame ^= pte->frame_num;
+      accessed[pte->frame_num] = true;
     }
-    pte->num_uses++;
   }
 
   // There are more than one frames which aren't accessed anywhere in the
   // future, so we'll evict the one with minimum frame number
   counted_till = cmdline_args.num_frames - 1;
   for (int i = 0; i < cmdline_args.num_frames; i++) {
-    if (frame_list[i]->num_uses == 0) {
+    if (!accessed[i]) {
       return frame_list[i];
     }
   }
@@ -436,8 +419,8 @@ int main(int argc, char *argv[]) {
       get_all_accesses(cmdline_args.input_file, &num_accesses);
   stats.mem_accesses = num_accesses;
 
-  int num_condensed_accesses = 0;
-  struct condensed_memory_op *condensed_mem_accesses =
+  num_condensed_accesses = 0;
+  condensed_mem_accesses =
       condense_accesses(mem_accesses, num_accesses, &num_condensed_accesses);
   free(mem_accesses);
 
