@@ -17,7 +17,7 @@ struct cmdline_args_t {
   int num_frames;
   enum strategy_t strategy;
   bool verbose;
-};
+} cmdline_args;
 
 struct cmdline_args_t extract_cmdline_args(int argc, char *argv[]) {
   struct cmdline_args_t args;
@@ -140,12 +140,15 @@ struct memory_op *get_all_accesses(FILE *file, int *size) {
 }
 
 struct page_table_entry {
+  int page_num;
   int frame_num;
   bool valid;
   bool dirty;
+  bool use;    // For CLOCK
+  int used_at; // FOR LRU
 };
 
-struct page_table_entry page_table[1 << VPN_BITS];
+struct page_table_entry *page_table;
 int next_free_frame = 0;
 
 struct {
@@ -155,16 +158,95 @@ struct {
   int num_drops;    // Number of drops
 } stats;
 
-void get_page_from_disk(struct page_table_entry *pte, int num_frames) {
+enum strategy_t evict_strat;
+
+// Assuming this doesn't overflow. This is realistic since >1e9 memory accesses
+// would take a long time to simulate
+int access_num = 0;
+void count_access(struct page_table_entry *pte) {
+  pte->use = 1;
+  pte->used_at = access_num++;
+}
+
+struct memory_op *mem_accesses;
+int curr_access;
+
+struct page_table_entry **frame_list;
+int fifo_pos = 0;
+
+struct page_table_entry *evict_page_fifo(struct page_table_entry *new_page) {
+  struct page_table_entry *ret = frame_list[fifo_pos];
+  frame_list[fifo_pos] = new_page;
+  fifo_pos = (fifo_pos + 1) % cmdline_args.num_frames;
+  return ret;
+}
+
+struct page_table_entry *evict_page_opt() {
+  int size = cmdline_args.num_frames * sizeof(bool);
+  bool *accesses = malloc(size);
+  memset(accesses, 0, size);
+
+  // TODO
+
+  free(accesses);
+
+  return NULL;
+}
+
+struct page_table_entry *evict_page_clock(struct page_table_entry *new_page) {
+  return NULL;
+}
+
+struct page_table_entry *evict_page_lru(struct page_table_entry *new_page) {
+  return NULL;
+}
+
+struct page_table_entry *evict_page_random(struct page_table_entry *new_page) {
+  return NULL;
+}
+
+struct page_table_entry *get_page_evict(struct page_table_entry *new_page) {
+  switch (cmdline_args.strategy) {
+  case OPT:
+    return evict_page_opt(new_page);
+  case FIFO:
+    return evict_page_fifo(new_page);
+  case CLOCK:
+    return evict_page_clock(new_page);
+  case LRU:
+    return evict_page_lru(new_page);
+  case RANDOM:
+    return evict_page_random(new_page);
+  }
+  fprintf(stderr, "Unrecognized strategy\n");
+  exit(1);
+}
+
+void print_verbose(int written_page, int read_page, bool dirty) {
+  if (!cmdline_args.verbose)
+    return;
+  if (dirty) {
+    printf(
+        "Page 0x%5x was read from disk, page 0x%5x was written to the disk.\n",
+        read_page, written_page);
+  } else {
+    printf("Page 0x%5x was read from disk, page 0x%5x was dropped (it was not "
+           "dirty).\n",
+           read_page, written_page);
+  }
+}
+
+void get_page_from_disk(struct page_table_entry *pte) {
   stats.num_misses++;
   pte->dirty = false;
   pte->valid = true;
 
-  if (next_free_frame < num_frames) {
+  if (next_free_frame < cmdline_args.num_frames) {
     pte->frame_num = next_free_frame++;
+    frame_list[pte->frame_num] = pte;
   } else {
     // Need to evict
-    struct page_table_entry *pte_evict = get_page_evict();
+    struct page_table_entry *pte_evict = get_page_evict(pte);
     pte_evict->valid = false;
     if (pte_evict->dirty) {
       stats.num_writes++;
@@ -172,61 +254,80 @@ void get_page_from_disk(struct page_table_entry *pte, int num_frames) {
       stats.num_drops++;
     }
     pte->frame_num = pte_evict->frame_num;
+    print_verbose(pte_evict->page_num, pte->page_num, pte_evict->dirty);
   }
 }
 
-void perform_read(struct page_table_entry *pte, int num_frames) {
+void perform_read(struct page_table_entry *pte) {
   if (pte->valid) {
     return;
   }
 
   // Translation not valid, need to bring page from disk.
-  get_page_from_disk(pte, num_frames);
-  perform_read(pte, num_frames);
+  get_page_from_disk(pte);
+  perform_read(pte);
 }
 
-void perform_write(struct page_table_entry *pte, int num_frames) {
+void perform_write(struct page_table_entry *pte) {
   if (pte->valid) {
     pte->dirty = true;
     return;
   }
 
   // Translation not valid, need to bring page from disk.
-  get_page_from_disk(pte, num_frames);
-  perform_write(pte, num_frames);
+  get_page_from_disk(pte);
+  perform_write(pte);
 }
 
-void perform_op(struct memory_op op, int num_frames) {
+void perform_op(struct memory_op op) {
   assert(op.page_num < (1 << VPN_BITS) && op.page_num >= 0 &&
          "Virtual Page Number must fit into the bits reserved for it");
 
   stats.mem_accesses++;
   struct page_table_entry *pte = &page_table[op.page_num];
+  pte->page_num = op.page_num;
   switch (op.type) {
   case READ:
-    perform_read(pte, num_frames);
+    perform_read(pte);
     break;
   case WRITE:
-    perform_write(pte, num_frames);
+    perform_write(pte);
     break;
   }
 }
 
-int main(int argc, char *argv[]) {
-  struct cmdline_args_t args = extract_cmdline_args(argc, argv);
+void init() {
+  srand(5635);
+  frame_list =
+      malloc(cmdline_args.num_frames * sizeof(struct page_table_entry *));
+  page_table = malloc((1 << VPN_BITS) * sizeof(struct page_table_entry));
+}
 
-  printf("Num frames: %d\n", args.num_frames);
-  printf("Strategy: %d\n", args.strategy);
-  printf("Verbose: %d\n", args.verbose);
+void cleanup() {
+  free(frame_list);
+  free(page_table);
+  if (fclose(cmdline_args.input_file)) {
+    perror("fclose");
+  }
+}
+
+int main(int argc, char *argv[]) {
+  cmdline_args = extract_cmdline_args(argc, argv);
+
+  init();
+
+  printf("Num frames: %d\n", cmdline_args.num_frames);
+  printf("Strategy: %d\n", cmdline_args.strategy);
+  printf("Verbose: %d\n", cmdline_args.verbose);
 
   int num_accesses = 0;
   struct memory_op *mem_accesses =
-      get_all_accesses(args.input_file, &num_accesses);
-  for (int i = 0; i < num_accesses; i++) {
-    printf("%x %d\n", mem_accesses[i].page_num, mem_accesses[i].type);
+      get_all_accesses(cmdline_args.input_file, &num_accesses);
+
+  for (curr_access = 0; curr_access < num_accesses; curr_access++) {
+    perform_op(mem_accesses[curr_access]);
   }
 
-  if (fclose(args.input_file)) {
-    perror("fclose");
-  }
+  free(mem_accesses);
+  cleanup();
 }
