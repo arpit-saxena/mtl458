@@ -301,6 +301,7 @@ void init() {
   frame_list =
       malloc(cmdline_args.num_frames * sizeof(struct page_table_entry *));
   page_table = malloc((1 << VPN_BITS) * sizeof(struct page_table_entry));
+  memset(page_table, 0, (1 << VPN_BITS) * sizeof(struct page_table_entry));
 }
 
 void cleanup() {
