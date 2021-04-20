@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "stdio.h": "c"
+    },
+    "editor.defaultFormatter": "xaver.clang-format",
+    "editor.formatOnSave": true
+}
